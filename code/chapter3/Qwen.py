@@ -6,7 +6,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # 指定模型ID
-model_id = "Qwen/Qwen1.5-0.5B-Chat"
+model_id = "Qwen/Qwen3.5-4B"
 
 # 设置设备，优先使用GPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -23,7 +23,7 @@ print("模型和分词器加载完成！")
 # 准备对话输入
 messages = [
     {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "你好，请介绍你自己。"}
+    {"role": "user", "content": "将以下内容翻译为英文 例如：你好 => hello\n 床 => \n 书 => \n笔记 => "}
 ]
 
 # 使用分词器的模板格式化输入

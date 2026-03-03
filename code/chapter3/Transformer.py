@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 import copy
+import torch.nn.functional as F
 
 class MultiHeadAttention(nn.Module):
     """
@@ -242,8 +243,24 @@ if __name__ == "__main__":
     tgt = torch.randint(1, tgt_vocab_size, (2, 12))  # (batch_size, seq_length)
 
     # 4. 模型前向传播
-    output = model(src, tgt)
-    
+    output = model(src, tgt)  # (2, 12, 5000)
+
     # 5. 打印输出形状
     print("模型输出的形状:", output.shape)
     # 预期输出: torch.Size([2, 12, 5000]) -> (batch_size, tgt_seq_len, tgt_vocab_size)
+
+    # 转为概率分布
+    probs = F.softmax(output, dim=-1)  # (2, 12, 5000)，每个位置概率和为1
+
+    # 查看第0个样本、第0个位置、概率最高的前5个词
+    pos_probs = probs[0, 0]               # shape: (5000,)
+    top5 = torch.topk(pos_probs, k=5)
+
+    print("top5 token ID:", top5.indices)
+    print("top5 概率:    ", top5.values)
+
+    # 直接取每个位置概率最大的词（贪心解码）
+    predicted_ids = output.argmax(dim=-1)  # (2, 12)
+    print("预测的token序列:", predicted_ids)
+
+    print("tgt的输入序列:", tgt)
