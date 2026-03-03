@@ -142,10 +142,10 @@ import re
 
 # --- 1. 配置LLM客户端 ---
 # 请根据您使用的服务，将这里替换成对应的凭证和地址
-API_KEY = "YOUR_API_KEY"
-BASE_URL = "YOUR_BASE_URL"
-MODEL_ID = "YOUR_MODEL_ID"
-os.environ['TAVILY_API_KEY'] = "YOUR_TAVILY_API_KEY"
+API_KEY = "sk-admajrhcbggmhgupzmfrximksxhryqdicmfogxaphmqelthw"
+BASE_URL = "https://api.siliconflow.cn/v1/chat/completions"
+MODEL_ID = "deepseek-ai/DeepSeek-R1"
+os.environ['TAVILY_API_KEY'] = "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"
 
 llm = OpenAICompatibleClient(
     model=MODEL_ID,
