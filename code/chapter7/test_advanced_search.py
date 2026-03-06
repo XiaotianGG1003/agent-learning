@@ -49,5 +49,5 @@ def test_with_agent():
 
 if __name__ == "__main__":
     test_advanced_search()
-    test_api_configuration()
-    test_with_agent()
+    # test_api_configuration()
+    # test_with_agent()

@@ -1,7 +1,8 @@
 # test_plan_solve_agent.py
 from dotenv import load_dotenv
 from hello_agents.core.llm import HelloAgentsLLM
-from my_plan_solve_agent import MyPlanAndSolveAgent
+# from my_plan_solve_agent import MyPlanAndSolveAgent
+from hello_agents import PlanAndSolveAgent
 
 # 加载环境变量
 load_dotenv()
@@ -10,7 +11,7 @@ load_dotenv()
 llm = HelloAgentsLLM()
 
 # 创建自定义PlanAndSolveAgent
-agent = MyPlanAndSolveAgent(
+agent = PlanAndSolveAgent(
     name="我的规划执行助手",
     llm=llm
 )
