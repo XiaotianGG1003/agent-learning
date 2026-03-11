@@ -14,6 +14,13 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from hello_agents.tools import MemoryTool
 
+# 让 Qdrant 云服务域名绕过代理
+no_proxy = os.environ.get("NO_PROXY", "")
+qdrant_domain = "*.qdrant.io,us-west-1-0.aws.cloud.qdrant.io"
+if qdrant_domain not in no_proxy:
+    os.environ["NO_PROXY"] = f"{no_proxy},{qdrant_domain}".strip(",")
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
+
 class MemoryTypesDeepDive:
     """四种记忆类型深度解析演示类"""
     
@@ -149,35 +156,30 @@ class MemoryTypesDeepDive:
         learning_session = [
             {
                 "content": "开始学习Python机器学习",
-                "context": "学习开始",
                 "location": "家里书房",
                 "mood": "专注",
                 "importance": 0.7
             },
             {
                 "content": "学习了线性回归的数学原理",
-                "context": "理论学习",
                 "chapter": "第3章",
                 "difficulty": "中等",
                 "importance": 0.8
             },
             {
                 "content": "实现了第一个线性回归模型",
-                "context": "实践编程",
                 "code_lines": 45,
                 "bugs_fixed": 2,
                 "importance": 0.9
             },
             {
                 "content": "完成了课后练习题",
-                "context": "练习巩固",
                 "exercises_completed": 5,
                 "accuracy": 0.8,
                 "importance": 0.6
             },
             {
                 "content": "总结今天的学习收获",
-                "context": "学习总结",
                 "key_concepts": ["线性回归", "梯度下降", "损失函数"],
                 "importance": 0.8
             }
@@ -700,19 +702,19 @@ def main():
         demo = MemoryTypesDeepDive()
         
         # 1. 工作记忆演示
-        demo.demonstrate_working_memory()
+        # demo.demonstrate_working_memory()
         
         # 2. 情景记忆演示
-        demo.demonstrate_episodic_memory()
+        # demo.demonstrate_episodic_memory()
         
         # 3. 语义记忆演示
         demo.demonstrate_semantic_memory()
         
         # 4. 感知记忆演示
-        demo.demonstrate_perceptual_memory()
+        # demo.demonstrate_perceptual_memory()
         
         # 5. 记忆交互演示
-        demo.demonstrate_memory_interactions()
+        # demo.demonstrate_memory_interactions()
         
         print("\n" + "=" * 80)
         print("🎉 四种记忆类型深度解析完成！")

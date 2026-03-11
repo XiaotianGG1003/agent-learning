@@ -12,6 +12,14 @@ from datetime import datetime
 from hello_agents.tools import MemoryTool
 from hello_agents.memory import MemoryConfig
 
+import os
+# 让 Qdrant 云服务域名绕过代理
+no_proxy = os.environ.get("NO_PROXY", "")
+qdrant_domain = "*.qdrant.io,us-west-1-0.aws.cloud.qdrant.io"
+if qdrant_domain not in no_proxy:
+    os.environ["NO_PROXY"] = f"{no_proxy},{qdrant_domain}".strip(",")
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
+
 class MemoryToolArchitectureDemo:
     """MemoryTool架构演示类"""
     

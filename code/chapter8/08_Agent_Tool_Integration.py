@@ -10,6 +10,13 @@ load_dotenv()
 import time
 from hello_agents import SimpleAgent, HelloAgentsLLM, ToolRegistry
 from hello_agents.tools import MemoryTool, RAGTool
+import os
+# 让 Qdrant 云服务域名绕过代理
+no_proxy = os.environ.get("NO_PROXY", "")
+qdrant_domain = "*.qdrant.io,us-west-1-0.aws.cloud.qdrant.io"
+if qdrant_domain not in no_proxy:
+    os.environ["NO_PROXY"] = f"{no_proxy},{qdrant_domain}".strip(",")
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
 class AgentIntegrationDemo:
     """Agent工具集成演示类"""
@@ -422,19 +429,19 @@ def main():
         demo = AgentIntegrationDemo()
         
         # 1. 工具注册模式演示
-        demo.demonstrate_tool_registry_pattern()
+        # demo.demonstrate_tool_registry_pattern()
         
         # 2. 统一接口模式演示
-        demo.demonstrate_unified_interface()
+        # demo.demonstrate_unified_interface()
         
         # 3. 协同工作流程演示
         demo.demonstrate_collaborative_workflow()
         
         # 4. Agent编排能力演示
-        demo.demonstrate_agent_orchestration()
+        # demo.demonstrate_agent_orchestration()
         
         # 5. 性能分析演示
-        demo.demonstrate_performance_analysis()
+        # demo.demonstrate_performance_analysis()
         
         print("\n" + "=" * 70)
         print("🎉 Agent工具集成演示完成！")

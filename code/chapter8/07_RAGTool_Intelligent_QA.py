@@ -4,11 +4,18 @@
 代码示例 07: RAGTool智能问答系统
 展示完整的检索→上下文构建→答案生成流程
 """
-
-import time
-from hello_agents.tools import RAGTool
 from dotenv import load_dotenv
 load_dotenv()
+import time
+from hello_agents.tools import RAGTool
+
+import os
+# 让 Qdrant 云服务域名绕过代理
+no_proxy = os.environ.get("NO_PROXY", "")
+qdrant_domain = "*.qdrant.io,us-west-1-0.aws.cloud.qdrant.io"
+if qdrant_domain not in no_proxy:
+    os.environ["NO_PROXY"] = f"{no_proxy},{qdrant_domain}".strip(",")
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
 class IntelligentQADemo:
     """智能问答演示类"""
@@ -527,7 +534,7 @@ def main():
         demo = IntelligentQADemo()
         
         # 1. 问题理解和分类演示
-        demo.demonstrate_question_understanding()
+        # demo.demonstrate_question_understanding()
         
         # 2. 上下文构建过程演示
         demo.demonstrate_context_construction()

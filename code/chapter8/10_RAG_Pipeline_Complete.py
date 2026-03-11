@@ -5,14 +5,21 @@
 展示从文档处理到智能问答的完整RAG流程
 """
 
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import time
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from hello_agents.tools import RAGTool
-from dotenv import load_dotenv
-load_dotenv()
+
+# 让 Qdrant 云服务域名绕过代理
+no_proxy = os.environ.get("NO_PROXY", "")
+qdrant_domain = "*.qdrant.io,us-west-1-0.aws.cloud.qdrant.io"
+if qdrant_domain not in no_proxy:
+    os.environ["NO_PROXY"] = f"{no_proxy},{qdrant_domain}".strip(",")
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
 class RAGPipelineComplete:
     """RAG完整处理管道演示类"""
@@ -28,7 +35,7 @@ class RAGPipelineComplete:
         # 初始化RAG工具
         self.rag_tool = RAGTool(
             knowledge_base_path="./rag_pipeline_kb",
-            rag_namespace="complete_pipeline"
+            rag_namespace="complete_pipeline",
         )
         
         print("✅ RAG系统初始化完成")
@@ -350,7 +357,10 @@ class RAGPipelineComplete:
                                                "document_id":"ai_history_long",
                                                "title":"人工智能发展史",
                                                "type":"historical_overview",
-                                               "chunking_strategy":"semantic"})
+                                               "chunking_strategy":"semantic",
+                                               "chunk_size":120,
+                                                "chunk_overlap":30
+                                                })
         print(f"长文档分块结果: {chunking_result}")
         
         # 演示不同分块大小的影响
@@ -371,7 +381,7 @@ class RAGPipelineComplete:
                                           "limit":3})
             search_time = time.time() - start_time
             print(f"  查询: '{query}' ({search_time:.4f}秒)")
-            print(f"    结果: {results[:120]}...")
+            print(f"    结果: {results[:300]}...")
         
         # 演示结构化文档的分块
         print(f"\n3. 结构化文档分块:")
@@ -423,7 +433,9 @@ class RAGPipelineComplete:
                                                  "document_id":"ml_algorithms_handbook",
                                                  "title":"机器学习算法手册",
                                                  "type":"reference_manual",
-                                                 "structure":"hierarchical"})
+                                                 "structure":"hierarchical",
+                                                 "chunk_size":120,
+                                                "chunk_overlap":30})
         print(f"结构化文档分块: {structured_result}")
         
         # 测试结构化检索
@@ -437,7 +449,7 @@ class RAGPipelineComplete:
             results = self.rag_tool.run({"action":"search",
                                           "query":query,
                                           "limit":2})
-            print(f"  结构化查询 '{query}': {results[:100]}...")
+            print(f"  结构化查询 '{query}': {results[:300]}...")
     
     def demonstrate_advanced_retrieval(self):
         """演示高级检索策略"""
@@ -810,19 +822,19 @@ def main():
         demo = RAGPipelineComplete()
         
         # 1. 文档摄取演示
-        demo.demonstrate_document_ingestion()
+        # demo.demonstrate_document_ingestion()
         
         # 2. 分块策略演示
-        demo.demonstrate_chunking_strategies()
+        # demo.demonstrate_chunking_strategies()
         
         # 3. 高级检索演示
-        demo.demonstrate_advanced_retrieval()
+        # demo.demonstrate_advanced_retrieval()
         
         # 4. 智能问答演示
         demo.demonstrate_intelligent_qa()
         
         # 5. 性能优化演示
-        demo.demonstrate_performance_optimization()
+        # demo.demonstrate_performance_optimization()
         
         print("\n" + "=" * 80)
         print("🎉 RAG完整处理管道演示完成！")
