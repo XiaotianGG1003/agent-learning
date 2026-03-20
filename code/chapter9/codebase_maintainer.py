@@ -10,6 +10,8 @@ CodebaseMaintainer - 代码库维护助手
 关键改进：使用 Agentic 方式，让 agent 自主决定使用哪些工具
 """
 
+from dotenv import load_dotenv
+load_dotenv()
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
@@ -446,13 +448,13 @@ def main():
     # 初始化助手
     maintainer = CodebaseMaintainer(
         project_name="my_flask_app",
-        codebase_path="./my_flask_app",
+        codebase_path="./codebase",
         llm=HelloAgentsLLM()
     )
 
     # 探索代码库（Agent 自主决定如何探索）
     print("\n### 探索代码库（Agent 自主探索）###")
-    response = maintainer.explore()
+    response = maintainer.explore("codebase")
 
     # 分析代码质量（Agent 自主决定分析方法）
     print("\n### 分析代码质量（Agent 自主分析）###")
