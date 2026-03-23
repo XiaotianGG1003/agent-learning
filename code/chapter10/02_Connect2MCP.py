@@ -1,5 +1,9 @@
 import asyncio
 from hello_agents.protocols import MCPClient
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+PY_MCP_SERVER = str(BASE_DIR / "my_mcp_server.py")
 
 async def connect_to_server():
     # 方式1：连接到社区提供的文件系统服务器
@@ -17,7 +21,7 @@ async def connect_to_server():
         print(f"可用工具: {[t['name'] for t in tools]}")
 
     # 方式2：连接到自定义的Python MCP服务器
-    client = MCPClient(["python", "my_mcp_server.py"])
+    client = MCPClient(["python", PY_MCP_SERVER])
     async with client:
         # 使用client...
         pass
@@ -70,16 +74,16 @@ async def use_tools():
 
     async with client:
         # 读取文件
-        result = await client.call_tool("read_file", {"path": "my_README.md"})
+        result = await client.call_tool("read_file", {"path": str(BASE_DIR / "my_README.md")})
         print(f"文件内容：\n{result}")
 
         # 列出目录
-        result = await client.call_tool("list_directory", {"path": "."})
+        result = await client.call_tool("list_directory", {"path": str(BASE_DIR)})
         print(f"当前目录文件：{result}")
 
         # 写入文件
         result = await client.call_tool("write_file", {
-            "path": "output.txt",
+            "path": str(BASE_DIR / "output.txt"),
             "content": "Hello from MCP!"
         })
         print(f"写入结果：{result}")

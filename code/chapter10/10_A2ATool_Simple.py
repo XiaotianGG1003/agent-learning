@@ -21,6 +21,6 @@ coordinator.add_tool(researcher_tool)
 
 # 协调者可以调用研究员Agent
 # 使用 action="ask" 向 Agent 提问
-response = coordinator.run("使用a2a工具，向Agent提问：请研究AI在教育领域的应用")
+response = coordinator.run("使用a2a工具 action=\"ask\" ,向Agent提问：请研究AI在教育领域的应用")
 print(response)
 

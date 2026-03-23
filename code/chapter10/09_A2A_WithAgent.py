@@ -100,9 +100,9 @@ class A2ATool(Tool):
         """获取工具参数"""
         return self._parameters
 
-    def run(self, **kwargs) -> str:
+    def run(self, params: Dict[str, Any]) -> str:
         """执行工具"""
-        question = kwargs.get('question', '')
+        question = params.get('question', '')
         result = self.client.execute_skill(self.skill_name, f"answer {question}")
         if result.get('status') == 'success':
             return result.get('result', 'No response')

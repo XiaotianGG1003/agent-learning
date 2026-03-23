@@ -1,6 +1,11 @@
 from hello_agents import SimpleAgent, HelloAgentsLLM
 from hello_agents.tools import MCPTool
 
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+
 print("=" * 70)
 print("方式1：使用内置演示服务器")
 print("=" * 70)
@@ -35,7 +40,7 @@ agent.add_tool(fs_tool)
 custom_tool = MCPTool(
     name="custom_server",  # 使用不同的名称
     description="自定义业务逻辑服务器",
-    server_command=["python", "my_mcp_server.py"]
+    server_command=["python", str(BASE_DIR / "my_mcp_server.py")]
 )
 agent.add_tool(custom_tool)
 

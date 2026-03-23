@@ -83,7 +83,7 @@ def handle_customer_query(query):
 
 # 测试不同类型的问题
 if __name__ == "__main__":
-    handle_customer_query("你们的API如何调用？")
-    handle_customer_query("企业版的价格是多少？")
-    handle_customer_query("如何集成到我的Python项目中？")
+    handle_customer_query("action=ask question=你们的API如何调用？ ")
+    # handle_customer_query("企业版的价格是多少？")
+    # handle_customer_query("如何集成到我的Python项目中？")
 
