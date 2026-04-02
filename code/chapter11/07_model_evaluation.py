@@ -29,7 +29,7 @@ def evaluate_sft_model():
     
     config = {
         "action": "evaluate",
-        "model_path": "./output/quick_test/sft",
+        "model_path": "./output/high_quality",
         "max_samples": 50  # 使用50个测试样本
     }
     
@@ -38,11 +38,11 @@ def evaluate_sft_model():
     print(f"  测试样本数: {config['max_samples']}")
     
     # 实际评估时取消注释
-    # result = tool.run(config)
-    # result_dict = json.loads(result)
-    # print(f"\n✅ 评估完成!")
-    # print(f"  准确率: {result_dict['accuracy']}")
-    # print(f"  平均奖励: {result_dict['average_reward']}")
+    result = tool.run(config)
+    result_dict = json.loads(result)
+    print(f"\n✅ 评估完成!")
+    print(f"  准确率: {result_dict['accuracy']}")
+    print(f"  平均奖励: {result_dict['average_reward']}")
     
     print("\n💡 提示: 取消注释以运行评估")
     
@@ -287,13 +287,13 @@ def practical_evaluation():
     print("# print(f'GRPO准确率: {grpo_data[\"accuracy\"]}')")
     
     # 实际评估时取消注释
-    # sft_result = tool.run(sft_config)
-    # sft_data = json.loads(sft_result)
-    # print(f"\n✅ SFT评估完成: {sft_data['accuracy']}")
+    sft_result = tool.run(sft_config)
+    sft_data = json.loads(sft_result)
+    print(f"\n✅ SFT评估完成: {sft_data['accuracy']}")
     
-    # grpo_result = tool.run(grpo_config)
-    # grpo_data = json.loads(grpo_result)
-    # print(f"✅ GRPO评估完成: {grpo_data['accuracy']}")
+    grpo_result = tool.run(grpo_config)
+    grpo_data = json.loads(grpo_result)
+    print(f"✅ GRPO评估完成: {grpo_data['accuracy']}")
     
     return sft_config, grpo_config
 
@@ -308,28 +308,28 @@ if __name__ == "__main__":
     print("="*80)
     evaluate_sft_model()
     
-    print("\n" + "="*80)
-    print("示例2: 评估GRPO模型")
-    print("="*80)
-    evaluate_grpo_model()
+    # print("\n" + "="*80)
+    # print("示例2: 评估GRPO模型")
+    # print("="*80)
+    # evaluate_grpo_model()
     
-    print("\n" + "="*80)
-    print("示例3: 对比SFT和GRPO模型")
-    print("="*80)
-    compare_sft_grpo()
+    # print("\n" + "="*80)
+    # print("示例3: 对比SFT和GRPO模型")
+    # print("="*80)
+    # compare_sft_grpo()
     
-    print("\n" + "="*80)
-    print("示例4: 评估基线模型")
-    print("="*80)
-    evaluate_baseline()
+    # print("\n" + "="*80)
+    # print("示例4: 评估基线模型")
+    # print("="*80)
+    # evaluate_baseline()
     
-    print("\n" + "="*80)
-    print("示例5: 完整评估流程")
-    print("="*80)
-    complete_evaluation()
+    # print("\n" + "="*80)
+    # print("示例5: 完整评估流程")
+    # print("="*80)
+    # complete_evaluation()
     
-    print("\n" + "="*80)
-    print("示例6: 实际评估示例")
-    print("="*80)
-    practical_evaluation()
+    # print("\n" + "="*80)
+    # print("示例6: 实际评估示例")
+    # print("="*80)
+    # practical_evaluation()
 

@@ -53,8 +53,8 @@ def basic_lora_config():
     print(f"  目标模块: ['q_proj', 'v_proj'] (默认)")
     
     # 实际训练时取消注释
-    # result = tool.run(config)
-    # print(json.dumps(json.loads(result), indent=2, ensure_ascii=False))
+    result = tool.run(config)
+    print(json.dumps(json.loads(result), indent=2, ensure_ascii=False))
     
     return config
 
@@ -189,7 +189,7 @@ def practical_training_configs():
         "output_dir": "./output/high_quality",
         "max_samples": None,  # 使用全部数据
         "num_epochs": 5,
-        "batch_size": 2,
+        "batch_size": 8,
         "use_lora": True,
         "lora_r": 32,
         "lora_alpha": 64,
@@ -216,8 +216,8 @@ def practical_training_configs():
     print(f"   batch_size: {high_quality_config['batch_size']}")
     
     # 实际训练时取消注释
-    # result = tool.run(quick_config)
-    # print(json.dumps(json.loads(result), indent=2, ensure_ascii=False))
+    result = tool.run(high_quality_config)
+    print(json.dumps(json.loads(result), indent=2, ensure_ascii=False))
     
     return quick_config, standard_config, high_quality_config
 
@@ -274,28 +274,28 @@ def lora_tuning_guidelines():
 # ============================================================================
 
 if __name__ == "__main__":
-    print("="*80)
-    print("示例1: 基础LoRA配置")
-    print("="*80)
-    basic_lora_config()
+    # print("="*80)
+    # print("示例1: 基础LoRA配置")
+    # print("="*80)
+    # basic_lora_config()
     
-    print("\n" + "="*80)
-    print("示例2: 不同LoRA秩的对比")
-    print("="*80)
-    compare_lora_ranks()
+    # print("\n" + "="*80)
+    # print("示例2: 不同LoRA秩的对比")
+    # print("="*80)
+    # compare_lora_ranks()
     
-    print("\n" + "="*80)
-    print("示例3: LoRA vs 完整微调对比")
-    print("="*80)
-    compare_lora_vs_full_finetuning()
+    # print("\n" + "="*80)
+    # print("示例3: LoRA vs 完整微调对比")
+    # print("="*80)
+    # compare_lora_vs_full_finetuning()
     
     print("\n" + "="*80)
     print("示例4: 实际训练配置示例")
     print("="*80)
     practical_training_configs()
     
-    print("\n" + "="*80)
-    print("示例5: LoRA参数调优建议")
-    print("="*80)
-    lora_tuning_guidelines()
+    # print("\n" + "="*80)
+    # print("示例5: LoRA参数调优建议")
+    # print("="*80)
+    # lora_tuning_guidelines()
 

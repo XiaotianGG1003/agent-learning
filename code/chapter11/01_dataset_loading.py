@@ -152,9 +152,9 @@ def load_full_dataset():
     print("⚠️  这可能需要一些时间...")
     
     # 实际加载时取消注释
-    # result = tool.run(config)
-    # result_dict = json.loads(result)
-    # print(f"✅ 完整训练集: {result_dict['dataset_size']} 样本")
+    result = tool.run(config)
+    result_dict = json.loads(result)
+    print(f"✅ 完整训练集: {result_dict['dataset_size']} 样本")
     
     print("💡 提示: 设置 max_samples=None 可以加载全部数据")
     print("   GSM8K训练集约有 7500 个样本")
@@ -253,30 +253,30 @@ def dataset_statistics():
 # ============================================================================
 
 if __name__ == "__main__":
-    print("="*80)
-    print("示例1: 加载SFT格式数据集")
-    print("="*80)
-    load_sft_dataset()
+    # print("="*80)
+    # print("示例1: 加载SFT格式数据集")
+    # print("="*80)
+    # load_sft_dataset()
     
-    print("\n" + "="*80)
-    print("示例2: 加载RL格式数据集")
-    print("="*80)
-    load_rl_dataset()
+    # print("\n" + "="*80)
+    # print("示例2: 加载RL格式数据集")
+    # print("="*80)
+    # load_rl_dataset()
     
-    print("\n" + "="*80)
-    print("示例3: 加载不同split的数据集")
-    print("="*80)
-    load_different_splits()
+    # print("\n" + "="*80)
+    # print("示例3: 加载不同split的数据集")
+    # print("="*80)
+    # load_different_splits()
     
-    print("\n" + "="*80)
-    print("示例4: 加载完整数据集")
-    print("="*80)
-    load_full_dataset()
+    # print("\n" + "="*80)
+    # print("示例4: 加载完整数据集")
+    # print("="*80)
+    # load_full_dataset()
     
-    print("\n" + "="*80)
-    print("示例5: 对比SFT和RL格式")
-    print("="*80)
-    compare_sft_rl_formats()
+    # print("\n" + "="*80)
+    # print("示例5: 对比SFT和RL格式")
+    # print("="*80)
+    # compare_sft_rl_formats()
     
     print("\n" + "="*80)
     print("示例6: 数据集统计信息")

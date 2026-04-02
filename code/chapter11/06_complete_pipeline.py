@@ -229,7 +229,7 @@ if __name__ == "__main__":
             "base_model": "Qwen/Qwen3-0.6B"
         },
         "data": {
-            "max_samples": 100  # 使用100个样本快速测试
+            "max_samples": None  # 使用100个样本快速测试
         },
         "sft": {
             "output_dir": "./models/sft_model",
@@ -242,7 +242,7 @@ if __name__ == "__main__":
             "batch_size": 2,
         },
         "eval": {
-            "max_samples": 20,
+            "max_samples": 100,
             "sft_accuracy_threshold": 0.40
         },
         "monitoring": {

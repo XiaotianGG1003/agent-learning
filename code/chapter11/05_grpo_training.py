@@ -168,8 +168,8 @@ def complete_sft_grpo_pipeline():
     print(f"  样本数: {sft_config['max_samples']}")
     
     # 实际训练时取消注释
-    # sft_result = tool.run(sft_config)
-    # print(f"✅ SFT训练完成: {sft_config['output_dir']}")
+    sft_result = tool.run(sft_config)
+    print(f"✅ SFT训练完成: {sft_config['output_dir']}")
     
     # 步骤2: GRPO训练
     print("\n步骤2: GRPO训练")
@@ -189,8 +189,8 @@ def complete_sft_grpo_pipeline():
     print(f"  样本数: {grpo_config['max_samples']}")
     
     # 实际训练时取消注释
-    # grpo_result = tool.run(grpo_config)
-    # print(f"✅ GRPO训练完成: {grpo_config['output_dir']}")
+    grpo_result = tool.run(grpo_config)
+    print(f"✅ GRPO训练完成: {grpo_config['output_dir']}")
     
     print("\n💡 推荐使用GRPO模型进行推理")
     
@@ -289,10 +289,10 @@ def practical_training_example():
     print("# print(f'✅ 训练完成! 模型保存在: {result_dict[\"output_dir\"]}')")
     
     # 实际训练时取消注释
-    # result = tool.run(config)
-    # result_dict = json.loads(result)
-    # print(f"\n✅ 训练完成!")
-    # print(f"📁 模型保存在: {result_dict['output_dir']}")
+    result = tool.run(config)
+    result_dict = json.loads(result)
+    print(f"\n✅ 训练完成!")
+    print(f"📁 模型保存在: {result_dict['output_dir']}")
     
     return config
 
@@ -302,33 +302,33 @@ def practical_training_example():
 # ============================================================================
 
 if __name__ == "__main__":
-    print("="*80)
-    print("示例1: 最简单的GRPO训练")
-    print("="*80)
-    minimal_grpo_training()
+    # print("="*80)
+    # print("示例1: 最简单的GRPO训练")
+    # print("="*80)
+    # minimal_grpo_training()
     
-    print("\n" + "="*80)
-    print("示例2: 标准GRPO训练配置")
-    print("="*80)
-    standard_grpo_training()
+    # print("\n" + "="*80)
+    # print("示例2: 标准GRPO训练配置")
+    # print("="*80)
+    # standard_grpo_training()
     
-    print("\n" + "="*80)
-    print("示例3: 完整数据集训练")
-    print("="*80)
-    full_dataset_training()
+    # print("\n" + "="*80)
+    # print("示例3: 完整数据集训练")
+    # print("="*80)
+    # full_dataset_training()
     
     print("\n" + "="*80)
     print("示例4: SFT + GRPO完整流程")
     print("="*80)
     complete_sft_grpo_pipeline()
     
-    print("\n" + "="*80)
-    print("示例5: 不同奖励函数的使用")
-    print("="*80)
-    using_different_rewards()
+    # print("\n" + "="*80)
+    # print("示例5: 不同奖励函数的使用")
+    # print("="*80)
+    # using_different_rewards()
     
-    print("\n" + "="*80)
-    print("示例6: 实际训练示例")
-    print("="*80)
-    practical_training_example()
+    # print("\n" + "="*80)
+    # print("示例6: 实际训练示例")
+    # print("="*80)
+    # practical_training_example()
 

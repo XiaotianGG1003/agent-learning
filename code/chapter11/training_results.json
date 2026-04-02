@@ -1,0 +1,45 @@
+{
+  "data": {
+    "status": "success",
+    "format": "sft",
+    "split": "train",
+    "dataset_size": 100,
+    "sample_keys": [
+      "prompt",
+      "completion",
+      "text"
+    ]
+  },
+  "sft_training": {
+    "status": "success",
+    "algorithm": "SFT",
+    "model": "Qwen/Qwen3-0.6B",
+    "output_dir": "./models/sft_model",
+    "num_epochs": 2,
+    "dataset_size": 100
+  },
+  "sft_evaluation": {
+    "status": "success",
+    "model_path": "./models/sft_model",
+    "num_samples": 20,
+    "accuracy": "5.00%",
+    "average_reward": "0.0500",
+    "device": "cuda"
+  },
+  "grpo_training": {
+    "status": "success",
+    "algorithm": "GRPO",
+    "model": "./models/sft_model",
+    "output_dir": "./models/grpo_model",
+    "num_epochs": 2,
+    "dataset_size": 100
+  },
+  "grpo_evaluation": {
+    "status": "success",
+    "model_path": "./models/grpo_model",
+    "num_samples": 20,
+    "accuracy": "0.00%",
+    "average_reward": "0.0000",
+    "device": "cuda"
+  }
+}
