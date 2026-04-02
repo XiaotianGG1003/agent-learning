@@ -10,6 +10,8 @@
 2. 需要设置HF_TOKEN环境变量
 3. 必须使用GAIA官方系统提示词
 """
+from dotenv import load_dotenv
+load_dotenv()  # 从.env文件加载环境变量
 
 import os
 from hello_agents import SimpleAgent, HelloAgentsLLM
@@ -40,7 +42,7 @@ gaia_tool = GAIAEvaluationTool()
 results = gaia_tool.run(
     agent=agent,
     level=1,              # 评估级别（1=简单，2=中等，3=困难）
-    max_samples=2,        # 评估样本数（0表示全部）
+    max_samples=5,        # 评估样本数（0表示全部）
     export_results=True,  # 导出结果到GAIA官方格式
     generate_report=True  # 生成详细报告
 )
@@ -49,7 +51,7 @@ results = gaia_tool.run(
 print(f"\n评估结果:")
 print(f"精确匹配率: {results['exact_match_rate']:.2%}")
 print(f"部分匹配率: {results['partial_match_rate']:.2%}")
-print(f"正确数: {results['correct_samples']}/{results['total_samples']}")
+print(f"正确数: {results['exact_matches']}/{results['total_samples']}")
 
 # 运行输出示例：
 # ============================================================
