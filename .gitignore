@@ -3,6 +3,7 @@
 **/output/**
 **/models/**
 **/__pycache__/**
+**/.env
 code/chapter12/evaluation_results/**
 code/chapter12/evaluation_reports/**
 code/chapter12/result/**
