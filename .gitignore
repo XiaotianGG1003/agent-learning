@@ -1,5 +1,8 @@
 .vscode/**
 .idea/**
+
+CLAUDE.md
+
 **/output/**
 **/models/**
 **/__pycache__/**
@@ -7,3 +10,7 @@
 code/chapter12/evaluation_results/**
 code/chapter12/evaluation_reports/**
 code/chapter12/result/**
+
+*.egg-info/
+agent/test_agents/.memory_data
+agent/test_agents/output.txt
