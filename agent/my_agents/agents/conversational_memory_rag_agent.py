@@ -13,6 +13,7 @@ from ..memory import MemoryConfig
 from ..tools.builtin.memory_tool import MemoryTool
 from ..tools.builtin.plan_tool import PlanTool
 from ..tools.builtin.rag_tool import RAGTool
+from ..tools.builtin.terminal_tool import TerminalTool
 
 
 class ConversationalMemoryRAGAgent(FunctionCallAgent):
@@ -28,7 +29,9 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
         "resolve_question 消解问题，未决问题清空后状态会恢复 in_progress；进入 waiting_user 后本轮会直接结束并等待用户，"
         "不要继续规划或调用其它工具；任务完成时切到 done。简单的一问一答无需使用 plan。\n"
         "长期检索策略：需要历史经验、用户长期偏好或项目事实时，调用 memory_search 检索 episodic/semantic/perceptual 记忆。"
-        "需要文档知识时，调用 rag_search 或 rag_ask。\n\n"
+        "需要文档知识时，调用 rag_search 或 rag_ask。\n"
+        "代码库工具策略：需要查看当前仓库文件时，优先使用 glob_files、grep_code、read_file；"
+        "需要修改文件时使用 edit_file 或 write_file；需要运行测试、构建或环境检查时使用 bash。\n\n"
         "工具结果策略：如果使用了工具或外部检索结果，优先依据工具返回的事实。"
         "不要把工具输出的原始 JSON 直接暴露给用户，而是用自然语言总结。若工具结果与用户描述冲突，要指出冲突并说明依据。"
     )
@@ -47,6 +50,9 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
         memory_types: Optional[list[str]] = None,
         enable_rag: bool = True,
         rag_knowledge_base_path: str = "./knowledge_base",
+        enable_terminal: bool = False,
+        terminal_workspace: str = ".",
+        terminal_config: Optional[dict[str, Any]] = None,
         enable_plan: bool = True,
         expandable: bool = True,
         max_tool_iterations: int = 3,
@@ -101,6 +107,15 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
                 expandable=expandable,
             )
             self.add_tool(self.rag_tool)
+
+        self.terminal_tool: Optional[TerminalTool] = None
+        if enable_terminal:
+            self.terminal_tool = TerminalTool(
+                workspace=terminal_workspace,
+                expandable=expandable,
+                **(terminal_config or {}),
+            )
+            self.add_tool(self.terminal_tool)
 
     def run(
         self,
@@ -175,7 +190,7 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
     ) -> Optional[str]:
         """工具执行完成后的回调：记录结果到 AgentState，必要时中断 LLM 调用。"""
         # 1. 判断状态：根据结果前缀判断工具执行是否失败
-        status = "error" if result.startswith("❌") else "success"
+        status = self._tool_result_status(result)
 
         # 2. 截断结果：避免过长的工具输出占用过多上下文
         stored_result = self._truncate_tool_result(result)
@@ -222,6 +237,20 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
             return text
         return text[:max_chars].rstrip() + "\n...（工具结果已截断）"
 
+    @staticmethod
+    def _tool_result_status(result: str) -> str:
+        """从工具返回值判断执行状态，兼容前缀文本和结构化 JSON。"""
+        text = (result or "").strip()
+        if text.startswith("❌"):
+            return "error"
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return "success"
+        if isinstance(payload, dict) and payload.get("status") == "error":
+            return "error"
+        return "success"
+
     def get_status(self) -> dict[str, Any]:
         """返回轻量运行状态，便于调试和诊断。"""
         return {
@@ -234,6 +263,7 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
             "memory_available": self.memory_tool is not None,
             "rag_available": self.rag_tool is not None,
             "plan_available": self.plan_tool is not None,
+            "terminal_available": self.terminal_tool is not None,
             "trace_enabled": self.trace_enabled,
             "trace_reasoning": self.trace_reasoning,
             "trace_tool": self.trace_tool,
