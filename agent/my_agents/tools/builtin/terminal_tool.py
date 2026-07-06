@@ -515,14 +515,19 @@ class TerminalTool(Tool):
     def _execute_command(self, command: str) -> str:
         """执行命令并返回结构化观察结果。"""
         try:
+            env = os.environ.copy()
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+
             result = subprocess.run(
                 command,
                 shell=True,
                 cwd=str(self.current_dir),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self.timeout,
-                env=os.environ.copy(),
+                env=env,
             )
 
             stdout, stdout_truncated = self._truncate(result.stdout or "")

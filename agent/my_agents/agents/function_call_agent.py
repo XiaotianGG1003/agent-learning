@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Iterator, Optional, Union, TYPE_CHECKING, Any, Dict
 
 from ..core.agent import Agent
@@ -14,6 +15,16 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..tools.registry import ToolRegistry
+
+
+@dataclass
+class ToolApprovalDecision:
+    """工具执行前的审批结果。"""
+
+    action: str = "approve"
+    arguments: Optional[dict[str, Any]] = None
+    result: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class FunctionCallAgent(Agent):
@@ -208,6 +219,18 @@ class FunctionCallAgent(Agent):
         # 基类默认不做处理，直接返回 None 表示不中断后续 LLM 调用
         return None
 
+    def before_tool_call(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> ToolApprovalDecision:
+        """工具执行前的审批 hook。
+
+        子类可覆盖此方法实现权限控制。默认批准并使用原始参数。
+        """
+        return ToolApprovalDecision(action="approve", arguments=arguments)
+
     def on_llm_response(
         self,
         step: int,
@@ -309,8 +332,33 @@ class FunctionCallAgent(Agent):
                 for tool_call in tool_calls:
                     tool_name = tool_call.function.name
                     arguments = self._parse_function_call_arguments(tool_call.function.arguments)
-                    result = self._execute_tool_call(tool_name, arguments)
-                    interrupt_response = self.on_tool_complete(tool_call.id, tool_name, arguments, result)
+                    approval = self.before_tool_call(tool_call.id, tool_name, arguments)
+                    final_arguments = arguments
+                    action = (approval.action or "approve").strip().lower()
+
+                    if isinstance(approval.arguments, dict):
+                        final_arguments = approval.arguments
+
+                    if action in {"approve", "edit"}:
+                        if action == "edit" and not isinstance(approval.arguments, dict):
+                            result = self._approval_error_result(
+                                tool_name,
+                                "tool call edit did not provide valid arguments",
+                            )
+                        else:
+                            result = self._execute_tool_call(tool_name, final_arguments)
+                    elif action == "reject":
+                        result = approval.result or self._approval_error_result(
+                            tool_name,
+                            approval.reason or "tool call rejected by user",
+                        )
+                    else:
+                        result = self._approval_error_result(
+                            tool_name,
+                            f"invalid approval action: {approval.action}",
+                        )
+
+                    interrupt_response = self.on_tool_complete(tool_call.id, tool_name, final_arguments, result)
                     messages.append(
                         {
                             "role": "tool",
@@ -355,6 +403,17 @@ class FunctionCallAgent(Agent):
         self.add_message(Message(final_response, "assistant"))
 
         return final_response
+
+    @staticmethod
+    def _approval_error_result(tool_name: str, error: str) -> str:
+        return json.dumps(
+            {
+                "status": "error",
+                "error": error,
+                "tool_name": tool_name,
+            },
+            ensure_ascii=False,
+        )
 
     def add_tool(self, tool) -> None:
         """便捷方法：将工具注册到当前Agent"""
