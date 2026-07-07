@@ -22,6 +22,7 @@ answer = rag.run({"action": "ask", "question": "什么是机器学习？"})
 from typing import Dict, Any, List, Optional
 import os
 import time
+import hashlib
 
 from ..base import Tool, ToolParameter, tool_action
 from ...memory.rag.pipeline import create_rag_pipeline
@@ -119,24 +120,28 @@ class RAGTool(Tool):
             return f"❌ RAG工具未正确初始化，请检查配置: {getattr(self, 'init_error', '未知错误')}"
 
         action = parameters.get("action")
+        if "document_id" in parameters:
+            return "❌ 参数 document_id 已删除，请使用 doc_id"
 
         # 根据action调用对应的方法，传入提取的参数
         try:
             if action == "add_document":
                 return self._add_document(
                     file_path=parameters.get("file_path"),
-                    document_id=parameters.get("document_id"),
+                    doc_id=parameters.get("doc_id"),
                     namespace=parameters.get("namespace"),
                     chunk_size=parameters.get("chunk_size", 800),
-                    chunk_overlap=parameters.get("chunk_overlap", 100)
+                    chunk_overlap=parameters.get("chunk_overlap", 100),
+                    upsert_mode=parameters.get("upsert_mode", "SKIP")
                 )
             elif action == "add_text":
                 return self._add_text(
                     text=parameters.get("text"),
-                    document_id=parameters.get("document_id"),
+                    doc_id=parameters.get("doc_id"),
                     namespace=parameters.get("namespace"),
                     chunk_size=parameters.get("chunk_size", 800),
-                    chunk_overlap=parameters.get("chunk_overlap", 100)
+                    chunk_overlap=parameters.get("chunk_overlap", 100),
+                    upsert_mode=parameters.get("upsert_mode", "SKIP")
                 )
             elif action == "ask":
                 question = parameters.get("question") or parameters.get("query")
@@ -207,6 +212,13 @@ class RAGTool(Tool):
                 required=False
             ),
             ToolParameter(
+                name="doc_id",
+                type="string",
+                description="文档ID；同一篇文档多次导入应保持不变，用于幂等判断",
+                required=False,
+                default=None
+            ),
+            ToolParameter(
                 name="question",
                 type="string", 
                 description="用户问题（用于智能问答）",
@@ -261,26 +273,89 @@ class RAGTool(Tool):
                 description="上下文拼装的最大字符数（默认：1200）",
                 required=False,
                 default=1200
+            ),
+            ToolParameter(
+                name="upsert_mode",
+                type="string",
+                description="文档导入策略：SKIP(同版本跳过，不同版本冲突)、REPLACE(不同版本替换)、APPEND(不同版本追加)、FAIL(doc_id存在即失败)",
+                required=False,
+                default="SKIP"
             )
         ]
+
+    def _format_import_result(
+        self,
+        import_result: Any,
+        item_name: str,
+        process_ms: int,
+        pipeline: Dict[str, Any],
+        item_type: str = "文档",
+    ) -> str:
+        """格式化 RAG 导入结果。"""
+        if not isinstance(import_result, dict):
+            return f"❌ {item_type}导入结果格式错误: {item_name}"
+
+        status = import_result.get("status") or "unknown"
+        mode = import_result.get("mode") or "SKIP"
+        doc_id = import_result.get("doc_id") or "unknown"
+        version = str(import_result.get("doc_version_hash") or "")
+        version_preview = version[:12] if version else "unknown"
+        chunks_total = int(import_result.get("chunks_total") or 0)
+        chunks_added = int(import_result.get("chunks_added") or 0)
+        chunks_existing = int(import_result.get("chunks_existing") or 0)
+        chunks_for_doc = int(import_result.get("chunks_existing_for_doc") or 0)
+        chunks_deleted = int(import_result.get("chunks_deleted") or 0)
+        reason = import_result.get("reason") or ""
+
+        status_text = {
+            "imported": f"✅ {item_type}已导入知识库: {item_name}",
+            "replaced": f"✅ {item_type}已替换旧版本: {item_name}",
+            "appended": f"✅ {item_type}新版本已追加: {item_name}",
+            "skipped": f"ℹ️ {item_type}同版本已存在，跳过导入: {item_name}",
+            "conflict": f"⚠️ {item_type}导入冲突: {item_name}",
+            "failed": f"❌ {item_type}导入失败: {item_name}",
+            "empty": f"⚠️ 未能从{item_type}生成有效分块: {item_name}",
+        }.get(status, f"⚠️ {item_type}导入状态未知: {item_name}")
+
+        lines = [
+            status_text,
+            f"🧾 doc_id: {doc_id}",
+            f"🔖 doc_version_hash: {version_preview}",
+            f"🧭 导入策略: {mode}",
+            f"📊 总分块: {chunks_total}",
+            f"📥 新增分块: {chunks_added}",
+            f"📦 同版本已有分块: {chunks_existing}",
+            f"📚 同 doc_id 已有分块: {chunks_for_doc}",
+        ]
+        if chunks_deleted:
+            lines.append(f"🗑️ 删除旧分块: {chunks_deleted}")
+        if reason:
+            lines.append(f"📌 原因: {reason}")
+        lines.extend([
+            f"⏱️ 处理时间: {process_ms}ms",
+            f"📝 命名空间: {pipeline.get('namespace', self.namespace)}",
+        ])
+        return "\n".join(lines)
 
     @tool_action("rag_add_document", "添加文档到知识库（支持PDF、Word、Excel、PPT、图片、音频等多种格式）")
     def _add_document(
         self,
         file_path: str,
-        document_id: str = None,
+        doc_id: str = None,
         namespace: str = None,
         chunk_size: int = 800,
-        chunk_overlap: int = 100
+        chunk_overlap: int = 100,
+        upsert_mode: str = "SKIP"
     ) -> str:
         """添加文档到知识库
 
         Args:
             file_path: 文档文件路径
-            document_id: 文档ID（可选）
+            doc_id: 文档ID（可选）；同一篇文档多次导入应保持不变
             namespace: 知识库命名空间（用于隔离不同项目，默认使用初始化时的命名空间）
             chunk_size: 分块大小
             chunk_overlap: 分块重叠大小
+            upsert_mode: 导入策略：SKIP/REPLACE/APPEND/FAIL
 
         Returns:
             执行结果
@@ -292,23 +367,23 @@ class RAGTool(Tool):
             pipeline = self._get_pipeline(namespace)
             t0 = time.time()
 
-            chunks_added = pipeline["add_documents"](
-                file_paths=[file_path],
+            import_result = pipeline["add_documents"](
+                file_path=file_path,
                 chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
+                chunk_overlap=chunk_overlap,
+                doc_id=doc_id,
+                upsert_mode=upsert_mode,
             )
 
             t1 = time.time()
             process_ms = int((t1 - t0) * 1000)
 
-            if chunks_added == 0:
-                return f"⚠️ 未能从文件解析内容: {os.path.basename(file_path)}"
-
-            return (
-                f"✅ 文档已添加到知识库: {os.path.basename(file_path)}\n"
-                f"📊 分块数量: {chunks_added}\n"
-                f"⏱️ 处理时间: {process_ms}ms\n"
-                f"📝 命名空间: {pipeline.get('namespace', self.namespace)}"
+            return self._format_import_result(
+                import_result=import_result,
+                item_name=os.path.basename(file_path),
+                process_ms=process_ms,
+                pipeline=pipeline,
+                item_type="文档",
             )
 
         except Exception as e:
@@ -318,19 +393,21 @@ class RAGTool(Tool):
     def _add_text(
         self,
         text: str,
-        document_id: str = None,
+        doc_id: str = None,
         namespace: str = None,
         chunk_size: int = 800,
-        chunk_overlap: int = 100
+        chunk_overlap: int = 100,
+        upsert_mode: str = "SKIP"
     ) -> str:
         """添加文本到知识库
 
         Args:
             text: 要添加的文本内容
-            document_id: 文档ID（可选）
+            doc_id: 文档ID（可选）
             namespace: 知识库命名空间（默认使用初始化时的命名空间）
             chunk_size: 分块大小
             chunk_overlap: 分块重叠大小
+            upsert_mode: 导入策略：SKIP/REPLACE/APPEND/FAIL
 
         Returns:
             执行结果
@@ -340,8 +417,9 @@ class RAGTool(Tool):
                 return "❌ 文本内容不能为空"
 
             # 创建临时文件
-            document_id = document_id or f"text_{abs(hash(text)) % 100000}"
-            tmp_path = os.path.join(self.knowledge_base_path, f"{document_id}.md")
+            doc_id = doc_id or f"text_{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
+            safe_doc_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in doc_id)
+            tmp_path = os.path.join(self.knowledge_base_path, f"{safe_doc_id}.md")
 
             try:
                 with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -350,23 +428,23 @@ class RAGTool(Tool):
                 pipeline = self._get_pipeline(namespace)
                 t0 = time.time()
 
-                chunks_added = pipeline["add_documents"](
-                    file_paths=[tmp_path],
+                import_result = pipeline["add_documents"](
+                    file_path=tmp_path,
                     chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap
+                    chunk_overlap=chunk_overlap,
+                    doc_id=doc_id,
+                    upsert_mode=upsert_mode,
                 )
 
                 t1 = time.time()
                 process_ms = int((t1 - t0) * 1000)
 
-                if chunks_added == 0:
-                    return f"⚠️ 未能从文本生成有效分块"
-
-                return (
-                    f"✅ 文本已添加到知识库: {document_id}\n"
-                    f"📊 分块数量: {chunks_added}\n"
-                    f"⏱️ 处理时间: {process_ms}ms\n"
-                    f"📝 命名空间: {pipeline.get('namespace', self.namespace)}"
+                return self._format_import_result(
+                    import_result=import_result,
+                    item_name=doc_id,
+                    process_ms=process_ms,
+                    pipeline=pipeline,
+                    item_type="文本",
                 )
 
             finally:
@@ -781,25 +859,44 @@ class RAGTool(Tool):
     # 便捷接口方法（简化用户调用）
     # ========================================
     
-    def add_document(self, file_path: str, namespace: str = None, chunk_size: int = 800, chunk_overlap: int = 100) -> str:
+    def add_document(
+        self,
+        file_path: str,
+        namespace: str = None,
+        chunk_size: int = 800,
+        chunk_overlap: int = 100,
+        doc_id: str = None,
+        upsert_mode: str = "SKIP",
+    ) -> str:
         """便捷方法：添加单个文档"""
         return self.run({
             "action": "add_document",
             "file_path": file_path,
             "namespace": namespace,
             "chunk_size": chunk_size,
-            "chunk_overlap": chunk_overlap
+            "chunk_overlap": chunk_overlap,
+            "doc_id": doc_id,
+            "upsert_mode": upsert_mode,
         })
 
-    def add_text(self, text: str, namespace: str = None, document_id: str = None, chunk_size: int = 800, chunk_overlap: int = 100) -> str:
+    def add_text(
+        self,
+        text: str,
+        namespace: str = None,
+        doc_id: str = None,
+        chunk_size: int = 800,
+        chunk_overlap: int = 100,
+        upsert_mode: str = "SKIP",
+    ) -> str:
         """便捷方法：添加文本内容"""
         return self.run({
             "action": "add_text",
             "text": text,
             "namespace": namespace,
-            "document_id": document_id,
+            "doc_id": doc_id,
             "chunk_size": chunk_size,
-            "chunk_overlap": chunk_overlap
+            "chunk_overlap": chunk_overlap,
+            "upsert_mode": upsert_mode,
         })
 
     def ask(self, question: str, namespace: str = None, **kwargs) -> str:
@@ -822,11 +919,22 @@ class RAGTool(Tool):
         params.update(kwargs)
         return self.run(params)
 
-    def add_documents_batch(self, file_paths: List[str], namespace: str = None) -> str:
+    def add_documents_batch(
+        self,
+        file_paths: List[str],
+        namespace: str = None,
+        doc_ids: Optional[List[str]] = None,
+        chunk_size: int = 800,
+        chunk_overlap: int = 100,
+        upsert_mode: str = "SKIP",
+    ) -> str:
         """批量添加多个文档"""
         if not file_paths:
             return "❌ 文件路径列表不能为空"
-        
+
+        if doc_ids and len(doc_ids) != len(file_paths):
+            return "❌ 文件数量和 doc_id 数量不匹配"
+
         results = []
         successful = 0
         failed = 0
@@ -834,15 +942,26 @@ class RAGTool(Tool):
         start_time = time.time()
         
         for i, file_path in enumerate(file_paths, 1):
+            doc_id = doc_ids[i - 1] if doc_ids else None
             print(f"📄 处理文档 {i}/{len(file_paths)}: {os.path.basename(file_path)}")
-            
+
             try:
-                result = self.add_document(file_path, namespace)
-                if "✅" in result:
+                result = self.add_document(
+                    file_path=file_path,
+                    namespace=namespace,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    doc_id=doc_id,
+                    upsert_mode=upsert_mode,
+                )
+                if "✅" in result or "ℹ️" in result:
                     successful += 1
                     # 提取分块数量
-                    if "分块数量:" in result:
-                        chunks = int(result.split("分块数量: ")[1].split("\n")[0])
+                    if "新增分块:" in result:
+                        chunks = int(result.split("新增分块: ")[1].split("\n")[0])
+                        total_chunks += chunks
+                    elif "📥 新增分块:" in result:
+                        chunks = int(result.split("📥 新增分块: ")[1].split("\n")[0])
                         total_chunks += chunks
                 else:
                     failed += 1
@@ -868,31 +987,31 @@ class RAGTool(Tool):
         
         return "\n".join(summary)
     
-    def add_texts_batch(self, texts: List[str], namespace: str = None, document_ids: Optional[List[str]] = None) -> str:
+    def add_texts_batch(self, texts: List[str], namespace: str = None, doc_ids: Optional[List[str]] = None) -> str:
         """批量添加多个文本"""
         if not texts:
             return "❌ 文本列表不能为空"
-        
-        if document_ids and len(document_ids) != len(texts):
-            return "❌ 文本数量和文档ID数量不匹配"
+
+        if doc_ids and len(doc_ids) != len(texts):
+            return "❌ 文本数量和 doc_id 数量不匹配"
         
         results = []
         successful = 0
         failed = 0
         total_chunks = 0
         start_time = time.time()
-        
+
         for i, text in enumerate(texts):
-            doc_id = document_ids[i] if document_ids else f"batch_text_{i+1}"
+            doc_id = doc_ids[i] if doc_ids else f"batch_text_{i+1}"
             print(f"📝 处理文本 {i+1}/{len(texts)}: {doc_id}")
-            
+
             try:
-                result = self.add_text(text, namespace, doc_id)
-                if "✅" in result:
+                result = self.add_text(text, namespace=namespace, doc_id=doc_id)
+                if "✅" in result or "ℹ️" in result:
                     successful += 1
                     # 提取分块数量
-                    if "分块数量:" in result:
-                        chunks = int(result.split("分块数量: ")[1].split("\n")[0])
+                    if "新增分块:" in result:
+                        chunks = int(result.split("新增分块: ")[1].split("\n")[0])
                         total_chunks += chunks
                 else:
                     failed += 1

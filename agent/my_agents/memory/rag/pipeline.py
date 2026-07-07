@@ -5,10 +5,16 @@ import hashlib
 import sqlite3
 import time
 import json
+import uuid
 from ..embedding import get_text_embedder, get_dimension
 from ..storage.qdrant_store import QdrantVectorStore
 import logging
 logger = logging.getLogger(__name__)
+
+
+RAG_PARSER_VERSION = "markitdown_recursive_v1"
+RAG_POINT_NAMESPACE_UUID = uuid.UUID("8c0fe9e8-5c45-4e34-a1d3-6f0c35531df2")
+RAG_IMPORT_MODES = {"SKIP", "REPLACE", "APPEND", "FAIL"}
 
 
 def _get_markitdown_instance():
@@ -342,13 +348,58 @@ def _add_overlap(
     return result
 
 
-def load_and_chunk_texts(paths: List[str], chunk_size: int = 800, chunk_overlap: int = 100, namespace: Optional[str] = None, source_label: str = "rag") -> List[Dict]:
+
+
+def _embedding_fingerprint(embedding_dimension: int) -> str:
+    model_type = os.getenv("EMBED_MODEL_TYPE", "dashscope").strip() or "dashscope"
+    model_name = os.getenv("EMBED_MODEL_NAME", "").strip() or "default"
+    return f"{model_type}:{model_name}:{embedding_dimension}"
+
+
+def _build_doc_version_hash(
+    content_hash: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    parser_version: str,
+    embedding_fingerprint: str,
+) -> str:
+    raw = "|".join([
+        content_hash,
+        str(chunk_size),
+        str(chunk_overlap),
+        parser_version,
+        embedding_fingerprint,
+    ])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _build_chunk_id(
+    namespace: str,
+    doc_id: str,
+    doc_version_hash: str,
+    chunk_index: int,
+    chunk_hash: str,
+) -> str:
+    raw = f"{namespace}:{doc_id}:{doc_version_hash}:{chunk_index}:{chunk_hash}"
+    return str(uuid.uuid5(RAG_POINT_NAMESPACE_UUID, raw))
+
+
+def load_and_chunk_texts(
+    file_path: str,
+    chunk_size: int = 800,
+    chunk_overlap: int = 100,
+    namespace: Optional[str] = None,
+    source_label: str = "rag",
+    doc_id: Optional[str] = None,
+    parser_version: str = RAG_PARSER_VERSION,
+    embedding_dimension: Optional[int] = None,
+) -> List[Dict]:
     """
     通用文档加载和分块器，使用递归分割。
     将所有支持的格式转换为 markdown，然后递归分块。
 
     Args:
-        paths: 文件路径列表
+        file_path: 单个文件路径
         chunk_size: 目标 chunk 大小（token 数）
         chunk_overlap: 重叠大小（token 数）
         namespace: RAG 命名空间
@@ -357,71 +408,104 @@ def load_and_chunk_texts(paths: List[str], chunk_size: int = 800, chunk_overlap:
     Returns:
         chunk 列表，每个包含 id、content、metadata
     """
-    print(f"[RAG] 开始加载: 文件数={len(paths)} chunk大小={chunk_size} 重叠={chunk_overlap} 命名空间={namespace or 'default'}")
+    normalized_namespace = namespace or "default"
+    normalized_chunk_size = max(1, int(chunk_size))
+    normalized_chunk_overlap = max(0, int(chunk_overlap))
+    embedding_dimension = int(embedding_dimension or get_dimension(384))
+    embedding_fingerprint = _embedding_fingerprint(embedding_dimension)
+
+    print(f"[RAG] 开始加载: 文件={file_path} chunk大小={normalized_chunk_size} 重叠={normalized_chunk_overlap} 命名空间={normalized_namespace}")
+    if not os.path.exists(file_path):
+        print(f"[WARNING] 文件不存在: {file_path}")
+        return []
+
+    print(f"[RAG] 处理中: {file_path}")
+    ext = (os.path.splitext(file_path)[1] or '').lower()
+    canonical_path = os.path.abspath(file_path).replace("\\", "/")
+    resolved_doc_id = doc_id.strip() if doc_id and str(doc_id).strip() else f"doc_{hashlib.sha256(os.path.abspath(file_path).replace(chr(92), '/').encode('utf-8')).hexdigest()[:24]}"
+
+    # 使用 MarkItDown 转换为 markdown
+    markdown_text = _convert_to_markdown(file_path)
+    if not markdown_text.strip():
+        print(f"[WARNING] 未能提取内容: {file_path}")
+        return []
+
+    content_hash = hashlib.sha256(markdown_text.encode("utf-8")).hexdigest()
+    doc_version_hash = _build_doc_version_hash(
+        content_hash=content_hash,
+        chunk_size=normalized_chunk_size,
+        chunk_overlap=normalized_chunk_overlap,
+        parser_version=parser_version,
+        embedding_fingerprint=embedding_fingerprint,
+    )
+
+    # 纯递归分割（不追踪标题）
+    print(f"[RAG] 使用递归分割")
+    text_chunks = _recursive_split_text(
+        markdown_text,
+        chunk_size=normalized_chunk_size,
+        chunk_overlap=normalized_chunk_overlap,
+        separators=DEFAULT_SEPARATORS,
+        length_function=_approx_token_len,
+    )
+
     chunks: List[Dict] = []
     seen_hashes = set()
-
-    for path in paths:
-        if not os.path.exists(path):
-            print(f"[WARNING] 文件不存在: {path}")
+    offset = 0
+    for chunk_text in text_chunks:
+        norm = chunk_text.strip()
+        if not norm:
             continue
 
-        print(f"[RAG] 处理中: {path}")
-        ext = (os.path.splitext(path)[1] or '').lower()
-
-        # 使用 MarkItDown 转换为 markdown
-        markdown_text = _convert_to_markdown(path)
-        if not markdown_text.strip():
-            print(f"[WARNING] 未能提取内容: {path}")
+        chunk_hash = hashlib.sha256(norm.encode("utf-8")).hexdigest()
+        if chunk_hash in seen_hashes:
             continue
+        seen_hashes.add(chunk_hash)
 
-        doc_id = hashlib.md5(f"{path}|{len(markdown_text)}".encode('utf-8')).hexdigest()
+        # 计算位置
+        start = markdown_text.find(chunk_text, offset)
+        if start == -1:
+            start = offset
+        end = start + len(chunk_text)
+        chunk_index = len(chunks)
 
-        # 纯递归分割（不追踪标题）
-        print(f"[RAG] 使用递归分割")
-        text_chunks = _recursive_split_text(
-            markdown_text,
-            chunk_size=max(1, chunk_size),
-            chunk_overlap=max(0, chunk_overlap),
-            separators=DEFAULT_SEPARATORS,
-            length_function=_approx_token_len,
+        chunk_id = _build_chunk_id(
+            namespace=normalized_namespace,
+            doc_id=resolved_doc_id,
+            doc_version_hash=doc_version_hash,
+            chunk_index=chunk_index,
+            chunk_hash=chunk_hash,
         )
+        chunks.append({
+            "id": chunk_id,
+            "content": chunk_text,
+            "metadata": {
+                "source_path": canonical_path,
+                "original_source_path": file_path,
+                "file_ext": ext,
+                "doc_id": resolved_doc_id,
+                "doc_version_hash": doc_version_hash,
+                "start": start,
+                "end": end,
+                "content_hash": content_hash,
+                "chunk_hash": chunk_hash,
+                "chunk_index": chunk_index,
+                "chunk_size": normalized_chunk_size,
+                "chunk_overlap": normalized_chunk_overlap,
+                "parser_version": parser_version,
+                "embedding_model": embedding_fingerprint,
+                "embedding_dimension": embedding_dimension,
+                "namespace": normalized_namespace,
+                "source": source_label,
+                "external": True,
+                "format": "markdown",
+            },
+        })
+        offset = end
 
-        # 构建 chunk 列表
-        offset = 0
-        for chunk_text in text_chunks:
-            norm = chunk_text.strip()
-            if not norm:
-                continue
-
-            content_hash = hashlib.md5(norm.encode('utf-8')).hexdigest()
-            if content_hash in seen_hashes:
-                continue
-            seen_hashes.add(content_hash)
-
-            # 计算位置
-            start = markdown_text.find(chunk_text, offset)
-            if start == -1:
-                start = offset
-            end = start + len(chunk_text)
-
-            chunk_id = hashlib.md5(f"{doc_id}|{start}|{end}|{content_hash}".encode('utf-8')).hexdigest()
-            chunks.append({
-                "id": chunk_id,
-                "content": chunk_text,
-                "metadata": {
-                    "source_path": path,
-                    "file_ext": ext,
-                    "doc_id": doc_id,
-                    "start": start,
-                    "end": end,
-                    "content_hash": content_hash,
-                    "namespace": namespace or "default",
-                    "source": source_label,
-                    "external": True,
-                    "format": "markdown",
-                },
-            })
+    chunk_count = len(chunks)
+    for chunk in chunks:
+        chunk["metadata"]["chunk_count"] = chunk_count
 
     print(f"[RAG] 加载完成: 总chunk数={len(chunks)}")
     return chunks
@@ -540,11 +624,11 @@ def index_chunks(
     cache_db: Optional[str] = None,
     batch_size: int = 10,
     namespace: str = "default"
-) -> None:
+) -> int:
     """将 markdown chunks 索引到 Qdrant 向量存储"""
     if not chunks:
         print("[RAG] 没有需要索引的 chunks")
-        return
+        return 0
 
     # 使用统一的 embedding 模块
     embedder = get_text_embedder()
@@ -642,10 +726,11 @@ def index_chunks(
     print(f"[RAG] 开始写入 Qdrant: 向量数={len(vecs)}")
     if not vecs:
         print(f"[RAG] 没有有效的向量可以索引")
-        return
+        return 0
     success = store.add_vectors(vectors=vecs, metadata=metas, ids=ids)
     if success:
         print(f"[RAG] Qdrant 写入完成: {len(vecs)} 个向量已索引")
+        return len(vecs)
     else:
         print(f"[RAG] Qdrant 写入失败")
         raise RuntimeError("向量索引到 Qdrant 失败")
@@ -1144,6 +1229,21 @@ def search_and_rerank(
 # 高层 RAG Pipeline API
 # ==================
 
+
+def _rag_chunk_filter(namespace: str, doc_id: Optional[str] = None, doc_version_hash: Optional[str] = None) -> Dict[str, Any]:
+    where: Dict[str, Any] = {
+        "memory_type": "rag_chunk",
+        "is_rag_data": True,
+        "data_source": "rag_pipeline",
+        "namespace": namespace,
+    }
+    if doc_id:
+        where["doc_id"] = doc_id
+    if doc_version_hash:
+        where["doc_version_hash"] = doc_version_hash
+    return where
+
+
 def create_rag_pipeline(
     qdrant_url: Optional[str] = None,
     qdrant_api_key: Optional[str] = None,
@@ -1166,21 +1266,137 @@ def create_rag_pipeline(
         distance="cosine"
     )
 
-    def add_documents(file_paths: List[str], chunk_size: int = 800, chunk_overlap: int = 100):
-        """添加文档到 RAG Pipeline"""
+    def add_documents(
+        file_path: str,
+        chunk_size: int = 800,
+        chunk_overlap: int = 100,
+        doc_id: Optional[str] = None,
+        upsert_mode: str = "SKIP",
+    ) -> Dict[str, Any]:
+        """添加单个文档到 RAG Pipeline，并按 doc_id/doc_version_hash 做幂等判断。"""
+        mode = (upsert_mode or "SKIP").strip().upper()
+        if mode not in RAG_IMPORT_MODES:
+            raise ValueError(f"不支持的 RAG 导入策略: {upsert_mode}，可选: SKIP/REPLACE/APPEND/FAIL")
+        base_result = {
+            "namespace": namespace,
+            "mode": mode,
+            "file_path": file_path,
+            "chunks_added": 0,
+        }
+
         chunks = load_and_chunk_texts(
-            paths=file_paths,
+            file_path=file_path,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             namespace=namespace,
-            source_label="rag"
+            source_label="rag",
+            doc_id=doc_id,
+            embedding_dimension=dimension,
         )
-        index_chunks(
+
+        if not chunks:
+            return {
+                **base_result,
+                "status": "empty",
+                "chunks_total": 0,
+                "reason": "未能解析出可索引内容",
+            }
+
+        first_meta = chunks[0].get("metadata", {})
+        resolved_doc_id = first_meta.get("doc_id")
+        doc_version_hash = first_meta.get("doc_version_hash")
+        content_hash = first_meta.get("content_hash")
+        expected_count = len(chunks)
+
+        same_doc_where = _rag_chunk_filter(namespace=namespace, doc_id=resolved_doc_id)
+        same_version_where = _rag_chunk_filter(
+            namespace=namespace,
+            doc_id=resolved_doc_id,
+            doc_version_hash=doc_version_hash,
+        )
+        same_doc_count = store.count_vectors(same_doc_where)
+        same_version_count = store.count_vectors(same_version_where)
+        has_complete_same_version = same_version_count == expected_count
+        has_other_version = same_doc_count > same_version_count
+
+        base_report = {
+            "source_path": first_meta.get("source_path"),
+            "doc_id": resolved_doc_id,
+            "doc_version_hash": doc_version_hash,
+            "content_hash": content_hash,
+            "chunks_total": expected_count,
+            "chunks_existing": same_version_count,
+            "chunks_existing_for_doc": same_doc_count,
+        }
+
+        if mode == "FAIL" and same_doc_count > 0:
+            return {
+                **base_result,
+                "status": "failed",
+                **base_report,
+                "reason": "doc_id 已存在，FAIL 策略拒绝导入",
+            }
+
+        if has_complete_same_version and not has_other_version:
+            return {
+                **base_result,
+                "status": "skipped",
+                **base_report,
+                "reason": "同版本已完整存在",
+            }
+
+        if mode == "APPEND" and has_complete_same_version:
+            return {
+                **base_result,
+                "status": "skipped",
+                **base_report,
+                "reason": "同版本已完整存在",
+            }
+
+        if mode == "SKIP" and same_doc_count > 0:
+            return {
+                **base_result,
+                "status": "conflict",
+                **base_report,
+                "reason": "同 doc_id 已存在不同版本或不完整版本，SKIP 策略拒绝导入",
+            }
+
+        if mode == "APPEND" and same_version_count > 0:
+            return {
+                **base_result,
+                "status": "conflict",
+                **base_report,
+                "reason": "同版本存在但 chunk 数不完整，APPEND 策略拒绝自动修复",
+            }
+
+        chunks_deleted = 0
+        target_status = "imported"
+        if mode == "REPLACE" and same_doc_count > 0:
+            chunks_deleted = same_doc_count
+            deleted = store.delete_by_filter(same_doc_where)
+            if not deleted:
+                return {
+                    **base_result,
+                    "status": "failed",
+                    **base_report,
+                    "reason": "REPLACE 策略删除旧版本失败",
+                }
+            target_status = "replaced"
+        elif mode == "APPEND" and same_doc_count > 0:
+            target_status = "appended"
+
+        chunks_added = index_chunks(
             store=store,
             chunks=chunks,
             namespace=namespace
         )
-        return len(chunks)
+        return {
+            **base_result,
+            "status": target_status,
+            "chunks_added": int(chunks_added or 0),
+            **base_report,
+            "chunks_deleted": chunks_deleted,
+        }
 
     def search(
         query: str,

@@ -229,6 +229,8 @@ class QdrantVectorStore:
                 # RAG相关字段索引
                 ("is_rag_data", models.PayloadSchemaType.BOOL),
                 ("data_source", models.PayloadSchemaType.KEYWORD),
+                ("doc_id", models.PayloadSchemaType.KEYWORD),
+                ("doc_version_hash", models.PayloadSchemaType.KEYWORD),
             ]
             for field_name, schema_type in index_fields:
                 try:
@@ -236,6 +238,7 @@ class QdrantVectorStore:
                         collection_name=self.collection_name,
                         field_name=field_name,
                         field_schema=schema_type,
+                        wait=True,
                     )
                 except Exception as ie:
                     # 索引已存在会报错，忽略
