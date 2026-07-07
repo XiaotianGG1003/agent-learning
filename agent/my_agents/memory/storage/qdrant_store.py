@@ -223,12 +223,8 @@ class QdrantVectorStore:
                 ("memory_id", models.PayloadSchemaType.KEYWORD),
                 ("timestamp", models.PayloadSchemaType.INTEGER),
                 ("modality", models.PayloadSchemaType.KEYWORD),  # 感知记忆模态筛选
-                ("source", models.PayloadSchemaType.KEYWORD),
-                ("external", models.PayloadSchemaType.BOOL),
                 ("namespace", models.PayloadSchemaType.KEYWORD),
                 # RAG相关字段索引
-                ("is_rag_data", models.PayloadSchemaType.BOOL),
-                ("data_source", models.PayloadSchemaType.KEYWORD),
                 ("doc_id", models.PayloadSchemaType.KEYWORD),
                 ("doc_version_hash", models.PayloadSchemaType.KEYWORD),
             ]
@@ -307,11 +303,6 @@ class QdrantVectorStore:
                 # 添加时间戳到元数据
                 meta_with_timestamp = meta.copy()
                 meta_with_timestamp["timestamp"] = int(datetime.now().timestamp())
-                meta_with_timestamp["added_at"] = int(datetime.now().timestamp())
-                if "external" in meta_with_timestamp and not isinstance(meta_with_timestamp.get("external"), bool):
-                    # normalize to bool
-                    val = meta_with_timestamp.get("external")
-                    meta_with_timestamp["external"] = True if str(val).lower() in ("1", "true", "yes") else False
                 # 确保点ID是Qdrant接受的类型（无符号整数或UUID字符串）
                 safe_id: Any
                 if isinstance(point_id, int):

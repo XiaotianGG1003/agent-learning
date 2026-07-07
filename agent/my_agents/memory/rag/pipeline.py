@@ -389,7 +389,6 @@ def load_and_chunk_texts(
     chunk_size: int = 800,
     chunk_overlap: int = 100,
     namespace: Optional[str] = None,
-    source_label: str = "rag",
     doc_id: Optional[str] = None,
     parser_version: str = RAG_PARSER_VERSION,
     embedding_dimension: Optional[int] = None,
@@ -403,7 +402,6 @@ def load_and_chunk_texts(
         chunk_size: 目标 chunk 大小（token 数）
         chunk_overlap: 重叠大小（token 数）
         namespace: RAG 命名空间
-        source_label: 数据源标签
 
     Returns:
         chunk 列表，每个包含 id、content、metadata
@@ -420,7 +418,6 @@ def load_and_chunk_texts(
         return []
 
     print(f"[RAG] 处理中: {file_path}")
-    ext = (os.path.splitext(file_path)[1] or '').lower()
     canonical_path = os.path.abspath(file_path).replace("\\", "/")
     resolved_doc_id = doc_id.strip() if doc_id and str(doc_id).strip() else f"doc_{hashlib.sha256(os.path.abspath(file_path).replace(chr(92), '/').encode('utf-8')).hexdigest()[:24]}"
 
@@ -481,8 +478,6 @@ def load_and_chunk_texts(
             "content": chunk_text,
             "metadata": {
                 "source_path": canonical_path,
-                "original_source_path": file_path,
-                "file_ext": ext,
                 "doc_id": resolved_doc_id,
                 "doc_version_hash": doc_version_hash,
                 "start": start,
@@ -496,9 +491,6 @@ def load_and_chunk_texts(
                 "embedding_model": embedding_fingerprint,
                 "embedding_dimension": embedding_dimension,
                 "namespace": normalized_namespace,
-                "source": source_label,
-                "external": True,
-                "format": "markdown",
             },
         })
         offset = end
@@ -714,9 +706,7 @@ def index_chunks(
             "user_id": "rag_user",
             "memory_type": "rag_chunk",
             "content": ch["content"],
-            "data_source": "rag_pipeline",
             "namespace": namespace,
-            "is_rag_data": True,
         }
         # 合并 chunk 元数据
         meta.update(ch.get("metadata", {}))
@@ -806,7 +796,6 @@ def search_vectors(
     query: str = "",
     top_k: int = 8,
     namespace: Optional[str] = None,
-    only_rag_data: bool = True,
     score_threshold: Optional[float] = None,
     enable_mqe: bool = False,
     mqe_expansions: int = 2,
@@ -821,7 +810,6 @@ def search_vectors(
         query: 查询文本
         top_k: 返回结果数量
         namespace: RAG 命名空间
-        only_rag_data: 是否只搜索 RAG 数据
         score_threshold: 最低分数阈值
         enable_mqe: 是否启用多查询扩展
         mqe_expansions: MQE 扩展数量
@@ -840,9 +828,6 @@ def search_vectors(
 
     # 构建 RAG 数据过滤条件
     where = {"memory_type": "rag_chunk"}
-    if only_rag_data:
-        where["is_rag_data"] = True
-        where["data_source"] = "rag_pipeline"
     if namespace:
         where["namespace"] = namespace
 
@@ -1233,8 +1218,6 @@ def search_and_rerank(
 def _rag_chunk_filter(namespace: str, doc_id: Optional[str] = None, doc_version_hash: Optional[str] = None) -> Dict[str, Any]:
     where: Dict[str, Any] = {
         "memory_type": "rag_chunk",
-        "is_rag_data": True,
-        "data_source": "rag_pipeline",
         "namespace": namespace,
     }
     if doc_id:
@@ -1289,7 +1272,6 @@ def create_rag_pipeline(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             namespace=namespace,
-            source_label="rag",
             doc_id=doc_id,
             embedding_dimension=dimension,
         )
@@ -1422,8 +1404,6 @@ def create_rag_pipeline(
         """获取 Pipeline 统计信息"""
         where = {
             "memory_type": "rag_chunk",
-            "is_rag_data": True,
-            "data_source": "rag_pipeline",
             "namespace": namespace,
         }
         return store.get_collection_stats(where=where)
@@ -1432,8 +1412,6 @@ def create_rag_pipeline(
         """清空当前 namespace 下的 RAG 数据，不影响同 collection 的其他 namespace。"""
         where = {
             "memory_type": "rag_chunk",
-            "is_rag_data": True,
-            "data_source": "rag_pipeline",
             "namespace": namespace,
         }
         return store.delete_by_filter(where=where)
