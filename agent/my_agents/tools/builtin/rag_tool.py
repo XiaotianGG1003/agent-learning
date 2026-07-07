@@ -45,6 +45,7 @@ class RAGTool(Tool):
         qdrant_api_key: str = None,
         collection_name: str = "rag_knowledge_base",
         namespace: str = "default",
+        db_path: str = None,
         expandable: bool = False
     ):
         super().__init__(
@@ -58,6 +59,7 @@ class RAGTool(Tool):
         self.qdrant_api_key = qdrant_api_key or os.getenv("QDRANT_API_KEY")
         self.collection_name = collection_name
         self.namespace = namespace
+        self.db_path = db_path or os.path.join(".memory_data", "memory.db")
         self._pipelines: Dict[str, Dict[str, Any]] = {}
 
         # 确保知识库目录存在
@@ -74,7 +76,8 @@ class RAGTool(Tool):
                 qdrant_url=self.qdrant_url,
                 qdrant_api_key=self.qdrant_api_key,
                 collection_name=self.collection_name,
-                namespace=self.namespace
+                namespace=self.namespace,
+                db_path=self.db_path,
             )
             self._pipelines[self.namespace] = default_pipeline
 
@@ -99,7 +102,8 @@ class RAGTool(Tool):
             qdrant_url=self.qdrant_url,
             qdrant_api_key=self.qdrant_api_key,
             collection_name=self.collection_name,
-            namespace=target_ns
+            namespace=target_ns,
+            db_path=self.db_path,
         )
         self._pipelines[target_ns] = pipeline
         return pipeline
@@ -727,7 +731,6 @@ class RAGTool(Tool):
                 )
 
             pipeline = self._get_pipeline(namespace)
-            store = pipeline.get("store")
             namespace_id = pipeline.get("namespace", self.namespace)
             clear_namespace = pipeline.get("clear_namespace")
             success = clear_namespace() if clear_namespace else False
@@ -738,7 +741,8 @@ class RAGTool(Tool):
                     qdrant_url=self.qdrant_url,
                     qdrant_api_key=self.qdrant_api_key,
                     collection_name=self.collection_name,
-                    namespace=namespace_id
+                    namespace=namespace_id,
+                    db_path=self.db_path,
                 )
                 return f"✅ 知识库命名空间已成功清空（命名空间：{namespace_id}）"
             else:
@@ -780,6 +784,16 @@ class RAGTool(Tool):
                     f"📦 存储类型: {store_type}",
                     f"📊 当前命名空间文档分块数: {int(total_vectors)}",
                 ])
+
+                manifest = stats.get("manifest") or {}
+                if manifest:
+                    stats_info.extend([
+                        f"📄 Manifest active 文档数: {int(manifest.get('active_documents') or 0)}",
+                        f"🔖 Manifest active 版本数: {int(manifest.get('active_versions') or 0)}",
+                        f"🧩 Manifest 期望分块数: {int(manifest.get('expected_chunk_count') or 0)}",
+                        f"⚠️ Manifest 失败记录数: {int(manifest.get('failed_manifests') or 0)}",
+                        f"🗃️ Manifest DB: {manifest.get('db_path', self.db_path)}",
+                    ])
                 
                 if "config" in stats:
                     config = stats["config"]
@@ -804,42 +818,6 @@ class RAGTool(Tool):
         except Exception as e:
             return f"❌ 获取统计信息失败: {str(e)}"
 
-    def get_relevant_context(self, query: str, limit: int = 3, max_chars: int = 1200, namespace: Optional[str] = None) -> str:
-        """为查询获取相关上下文
-        
-        这个方法可以被Agent调用来获取相关的知识库上下文
-        """
-        try:
-            if not query:
-                return ""
-            
-            # 使用统一 RAG 管道搜索
-            pipeline = self._get_pipeline(namespace)
-            results = pipeline["search"](
-                query=query,
-                top_k=limit
-            )
-            
-            if not results:
-                return ""
-            
-            # 合并上下文
-            context_parts = []
-            for result in results:
-                content = result.get("metadata", {}).get("content", "")
-                if content:
-                    context_parts.append(content)
-            
-            merged_context = "\n\n".join(context_parts)
-            
-            # 限制长度
-            if len(merged_context) > max_chars:
-                merged_context = merged_context[:max_chars] + "..."
-            
-            return merged_context
-            
-        except Exception as e:
-            return f"获取上下文失败: {str(e)}"
 
     def clear_all_namespaces(self) -> str:
         """清空当前工具管理的所有命名空间数据"""

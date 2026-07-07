@@ -122,12 +122,16 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
             self.plan_tool = PlanTool(state=self.state, expandable=True)
             self.add_tool(self.plan_tool)
 
+        # TODO 使用统一配置
+        self.memory_config = memory_config or MemoryConfig()
+        self.db_path = os.path.join(self.memory_config.storage_path, "memory.db")
+
         self.memory_tool: Optional[MemoryTool] = None
         if enable_memory:
             self.memory_tool = MemoryTool(
                 user_id=user_id,
                 session_id=self.session_id,
-                memory_config=memory_config,
+                memory_config=self.memory_config,
                 memory_types=memory_types,
                 expandable=True,
             )
@@ -138,6 +142,7 @@ class ConversationalMemoryRAGAgent(FunctionCallAgent):
             self.rag_tool = RAGTool(
                 knowledge_base_path=rag_knowledge_base_path,
                 namespace=namespace,
+                db_path=self.db_path,
                 expandable=True,
             )
             self.add_tool(self.rag_tool)

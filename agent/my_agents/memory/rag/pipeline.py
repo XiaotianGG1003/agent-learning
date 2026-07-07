@@ -8,6 +8,7 @@ import json
 import uuid
 from ..embedding import get_text_embedder, get_dimension
 from ..storage.qdrant_store import QdrantVectorStore
+from ..storage.document_store import SQLiteDocumentStore
 import logging
 logger = logging.getLogger(__name__)
 
@@ -699,17 +700,29 @@ def index_chunks(
     # 准备元数据（只包含成功编码的 chunk）
     metas: List[Dict] = []
     ids: List[str] = []
+    payload_metadata_keys = {
+        "source_path",
+        "doc_id",
+        "doc_version_hash",
+        "start",
+        "end",
+        "chunk_index",
+        "namespace",
+    }
     for idx in valid_indices:
         ch = chunks[idx]
         meta = {
-            "memory_id": ch["id"],
-            "user_id": "rag_user",
+            "id": ch["id"],
             "memory_type": "rag_chunk",
             "content": ch["content"],
             "namespace": namespace,
         }
-        # 合并 chunk 元数据
-        meta.update(ch.get("metadata", {}))
+        chunk_meta = ch.get("metadata", {})
+        meta.update({
+            key: chunk_meta[key]
+            for key in payload_metadata_keys
+            if key in chunk_meta
+        })
         metas.append(meta)
         ids.append(ch["id"])
 
@@ -873,7 +886,9 @@ def search_vectors(
         try:
             hits = store.search_similar(query_vector=qv, limit=per, score_threshold=score_threshold, where=where)
             for h in hits:
-                mid = h.get("metadata", {}).get("memory_id", h.get("id"))
+                mid = h.get("metadata", {}).get("id")
+                if not mid:
+                    continue
                 s = float(h.get("score", 0.0))
                 if mid not in agg or s > float(agg[mid].get("score", 0.0)):
                     agg[mid] = h
@@ -1008,7 +1023,7 @@ def compress_ranked_items(
             end = int(meta.get("end") or (start + len(content)))
             rerank_score = it.get("rerank_score")
             score = float(it.get("score", 0.0))
-            chunk_id = it.get("id") or meta.get("memory_id") or ""
+            chunk_id = meta.get("id")
 
             if current is None:
                 current = _new_segment(it, meta, content, start, end, score, rerank_score, chunk_id)
@@ -1231,7 +1246,8 @@ def create_rag_pipeline(
     qdrant_url: Optional[str] = None,
     qdrant_api_key: Optional[str] = None,
     collection_name: str = "hello_agents_rag_vectors",
-    namespace: str = "default"
+    namespace: str = "default",
+    db_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     创建完整的 RAG Pipeline，包含 Qdrant 和统一 embedding。
@@ -1248,6 +1264,7 @@ def create_rag_pipeline(
         vector_size=dimension,
         distance="cosine"
     )
+    manifest_store = SQLiteDocumentStore(db_path=db_path)
 
     def add_documents(
         file_path: str,
@@ -1285,25 +1302,38 @@ def create_rag_pipeline(
             }
 
         first_meta = chunks[0].get("metadata", {})
-        resolved_doc_id = first_meta.get("doc_id")
+        doc_id = first_meta.get("doc_id")
         doc_version_hash = first_meta.get("doc_version_hash")
         content_hash = first_meta.get("content_hash")
         expected_count = len(chunks)
 
-        same_doc_where = _rag_chunk_filter(namespace=namespace, doc_id=resolved_doc_id)
         same_version_where = _rag_chunk_filter(
             namespace=namespace,
-            doc_id=resolved_doc_id,
+            doc_id=doc_id,
             doc_version_hash=doc_version_hash,
         )
-        same_doc_count = store.count_vectors(same_doc_where)
-        same_version_count = store.count_vectors(same_version_where)
-        has_complete_same_version = same_version_count == expected_count
-        has_other_version = same_doc_count > same_version_count
+        active_manifests = manifest_store.get_active_rag_manifests(namespace, doc_id)
+        same_version_manifest = next(
+            (
+                manifest
+                for manifest in active_manifests
+                if manifest.get("doc_version_hash") == doc_version_hash
+            ),
+            None,
+        )
+        old_version_manifests = [
+            manifest
+            for manifest in active_manifests
+            if manifest.get("doc_version_hash") != doc_version_hash
+        ]
+        same_doc_count = sum(int(manifest.get("chunk_count") or 0) for manifest in active_manifests)
+        same_version_count = int(same_version_manifest.get("chunk_count") or 0) if same_version_manifest else 0
+        has_same_version = same_version_manifest is not None
+        has_other_version = bool(old_version_manifests)
 
         base_report = {
             "source_path": first_meta.get("source_path"),
-            "doc_id": resolved_doc_id,
+            "doc_id": doc_id,
             "doc_version_hash": doc_version_hash,
             "content_hash": content_hash,
             "chunks_total": expected_count,
@@ -1319,7 +1349,7 @@ def create_rag_pipeline(
                 "reason": "doc_id 已存在，FAIL 策略拒绝导入",
             }
 
-        if has_complete_same_version and not has_other_version:
+        if has_same_version:
             return {
                 **base_result,
                 "status": "skipped",
@@ -1327,15 +1357,7 @@ def create_rag_pipeline(
                 "reason": "同版本已完整存在",
             }
 
-        if mode == "APPEND" and has_complete_same_version:
-            return {
-                **base_result,
-                "status": "skipped",
-                **base_report,
-                "reason": "同版本已完整存在",
-            }
-
-        if mode == "SKIP" and same_doc_count > 0:
+        if mode == "SKIP" and has_other_version:
             return {
                 **base_result,
                 "status": "conflict",
@@ -1343,35 +1365,106 @@ def create_rag_pipeline(
                 "reason": "同 doc_id 已存在不同版本或不完整版本，SKIP 策略拒绝导入",
             }
 
-        if mode == "APPEND" and same_version_count > 0:
-            return {
-                **base_result,
-                "status": "conflict",
-                **base_report,
-                "reason": "同版本存在但 chunk 数不完整，APPEND 策略拒绝自动修复",
-            }
-
         chunks_deleted = 0
         target_status = "imported"
-        if mode == "REPLACE" and same_doc_count > 0:
-            chunks_deleted = same_doc_count
-            deleted = store.delete_by_filter(same_doc_where)
-            if not deleted:
-                return {
-                    **base_result,
-                    "status": "failed",
-                    **base_report,
-                    "reason": "REPLACE 策略删除旧版本失败",
-                }
+        if mode == "REPLACE" and has_other_version:
+            chunks_deleted = sum(int(manifest.get("chunk_count") or 0) for manifest in old_version_manifests)
             target_status = "replaced"
-        elif mode == "APPEND" and same_doc_count > 0:
+        elif mode == "APPEND" and has_other_version:
             target_status = "appended"
 
-        chunks_added = index_chunks(
-            store=store,
-            chunks=chunks,
-            namespace=namespace
+        try:
+            manifest_store.create_rag_manifest_pending(
+                namespace=namespace,
+                doc_id=doc_id,
+                doc_version_hash=doc_version_hash,
+                source_path=first_meta.get("source_path") or file_path,
+                content_hash=content_hash,
+                chunk_count=expected_count,
+                chunk_size=int(first_meta.get("chunk_size") or chunk_size),
+                chunk_overlap=int(first_meta.get("chunk_overlap") or chunk_overlap),
+                parser_version=first_meta.get("parser_version") or RAG_PARSER_VERSION,
+                embedding_model=first_meta.get("embedding_model") or "",
+                embedding_dimension=int(first_meta.get("embedding_dimension") or dimension),
+                qdrant_collection=collection_name,
+                metadata={"mode": mode, "target_status": target_status},
+            )
+        except Exception as e:
+            return {
+                **base_result,
+                "status": "failed",
+                **base_report,
+                "reason": f"创建 RAG manifest 失败: {e}",
+            }
+
+        try:
+            chunks_added = index_chunks(
+                store=store,
+                chunks=chunks,
+                namespace=namespace
+            )
+        except Exception as e:
+            manifest_store.mark_rag_manifest_failed(
+                namespace,
+                doc_id,
+                doc_version_hash,
+                error=str(e),
+            )
+            return {
+                **base_result,
+                "status": "failed",
+                **base_report,
+                "reason": f"写入 Qdrant 失败: {e}",
+            }
+
+        if target_status == "replaced":
+            for old_manifest in old_version_manifests:
+                old_where = _rag_chunk_filter(
+                    namespace=namespace,
+                    doc_id=doc_id,
+                    doc_version_hash=old_manifest.get("doc_version_hash"),
+                )
+                if not store.delete_by_filter(old_where):
+                    store.delete_by_filter(same_version_where)
+                    manifest_store.mark_rag_manifest_failed(
+                        namespace,
+                        doc_id,
+                        doc_version_hash,
+                        error="REPLACE 策略删除旧版本失败",
+                        chunks_added=int(chunks_added or 0),
+                    )
+                    return {
+                        **base_result,
+                        "status": "failed",
+                        "chunks_added": int(chunks_added or 0),
+                        **base_report,
+                        "chunks_deleted": 0,
+                        "reason": "REPLACE 策略删除旧版本失败",
+                    }
+            manifest_store.deactivate_rag_manifests(
+                namespace,
+                doc_id,
+                exclude_version=doc_version_hash,
+                reason="replaced",
+            )
+
+        imported = manifest_store.mark_rag_manifest_imported(
+            namespace,
+            doc_id,
+            doc_version_hash,
+            chunks_added=int(chunks_added or 0),
+            chunks_deleted=chunks_deleted,
+            metadata={"mode": mode, "target_status": target_status},
         )
+        if not imported:
+            store.delete_by_filter(same_version_where)
+            return {
+                **base_result,
+                "status": "failed",
+                **base_report,
+                "reason": "更新 RAG manifest 导入状态失败",
+            }
+
         return {
             **base_result,
             "status": target_status,
@@ -1406,7 +1499,14 @@ def create_rag_pipeline(
             "memory_type": "rag_chunk",
             "namespace": namespace,
         }
-        return store.get_collection_stats(where=where)
+        stats = store.get_collection_stats(where=where)
+        manifest_stats = manifest_store.get_rag_manifest_stats(namespace=namespace)
+        stats["manifest"] = manifest_stats
+        stats["active_documents"] = manifest_stats.get("active_documents", 0)
+        stats["active_versions"] = manifest_stats.get("active_versions", 0)
+        stats["expected_chunk_count"] = manifest_stats.get("expected_chunk_count", 0)
+        stats["failed_manifests"] = manifest_stats.get("failed_manifests", 0)
+        return stats
 
     def clear_namespace():
         """清空当前 namespace 下的 RAG 数据，不影响同 collection 的其他 namespace。"""
@@ -1414,7 +1514,10 @@ def create_rag_pipeline(
             "memory_type": "rag_chunk",
             "namespace": namespace,
         }
-        return store.delete_by_filter(where=where)
+        deleted = store.delete_by_filter(where=where)
+        if deleted:
+            manifest_store.clear_rag_manifests(namespace)
+        return deleted
 
     def search_rerank(
         query: str,
@@ -1438,6 +1541,7 @@ def create_rag_pipeline(
 
     return {
         "store": store,
+        "document_store": manifest_store,
         "namespace": namespace,
         "add_documents": add_documents,
         "search": search,

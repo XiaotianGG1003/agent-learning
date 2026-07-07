@@ -123,7 +123,7 @@ def main() -> None:
         chunk_size=200,
         chunk_overlap=20,
         doc_id="demo_md",
-        upsert_mode="SKIP",
+        upsert_mode="REPLACE",
     )
     print(f"📚 添加文档: {result}")
     print("进入连续对话模式。每次看到助手回答后，可继续输入下一轮问题。")
